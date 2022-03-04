@@ -23,14 +23,19 @@ def get_args():
                            help='The assembly file to be assembled.')
 
     my_parser.add_argument('-o',
-                            metavar='output_file',
-                            type=str,
-                            default='out.bin',
-                            help='The output file to be generated.')
+                           metavar='output_file',
+                           type=str,
+                           default='out.bin',
+                           help='The output file to be generated.')
+
+    my_parser.add_argument('-d',
+                           action='store_true',
+                           help='Active debuger.')
 
     return my_parser.parse_args()
 
-def main(input_file: str, o: str):
+
+def main(input_file: str, o: str, d: bool):
     '''
     Entry point for the assembler.
     '''
@@ -38,11 +43,11 @@ def main(input_file: str, o: str):
     with open(input_file, 'r', encoding='utf-8') as assembly_file:
         code = assembly_file.read()
 
+    compiled_code = compile_source(code, debuger=d)
 
-    compiled_code = compile_source(code)
-
-    with open (o, "wb") as out_file:
+    with open(o, "wb") as out_file:
         out_file.write(compiled_code)
+
 
 args = get_args()
 main(**args.__dict__)

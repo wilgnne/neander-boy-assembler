@@ -2,106 +2,109 @@
     A lexer definition
 '''
 
-from assembler.token import Token
-from assembler.node import Node
-from assembler.ast import Ast
+from assembler.token import Token, TokenType
 
 
-def lexer(entry: str) -> Ast:
+def is_label(line: str) -> bool:
+    '''
+    Check if a line is a label.
+    '''
+
+    return line.count(':') > 0
+
+
+def is_segment(line: str) -> bool:
+    '''
+    Check if a line is a segment.
+    '''
+
+    return line.startswith('.DATA') or line.startswith('.TEXT')
+
+
+def is_type(line: str) -> bool:
+    '''
+    Check if a line is a type.
+    '''
+
+    return line.count('.') > 0
+
+
+def is_comment(line: str) -> bool:
+    '''
+    Check if a line is a comment.
+    '''
+
+    return line.count(';') > 0
+
+
+def is_empty(line: str) -> bool:
+    '''
+    Check if a line is empty.
+    '''
+
+    return line.strip() == ''
+
+
+def lexer(entry: str) -> list[Token]:
     '''
     Lexical analysis.
     '''
 
-    lines = entry.split('\n')
+    lines = [line.strip() for line in entry.split('\n')]
+    tokens = []
 
-    ast = Ast(Node(Token('root', 'root')))
+    for line in lines:
+        if is_empty(line) or is_comment(line):
+            continue
+        elif is_segment(line):
+            tokens.append(Token(TokenType.SEGMENT, line.split('.')[1]))
+        elif is_label(line):
+            label = line.split(':')[0].strip()
+            tokens.append(Token(TokenType.LABEL, label))
 
-    state = None
-
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-
-        if line.isspace() or line in ['\n', '']:  # Skip empty lines.
-            i += 1
-        if state is None:
-            if line.startswith('.text'):
-                state = 'text'
-            elif line.startswith('.data'):
-                state = 'data'
-
-        elif state == 'data':
-            data_node = None
-            if line.startswith('.data'):
-                data_token = Token('DATA', line)
-                data_node = Node(data_token)
-                ast.root.add_child(data_node)
-                i += 1
-            while i < len(lines) and not lines[i].startswith('.text'):
-                line = lines[i]
-
-                if line.isspace() or line in ['\n', '']:  # Skip empty lines.
-                    i += 1
-                    continue
-
-                label = line.split(':')[0]
-                label_node = Node(Token('LABEL', label))
-
-                tmp = line.split(':')[1].strip().split(' ')
-
-                type_name  = tmp[0]
-
+            if is_type(line):
+                tmp = line.split('.')[1].strip().split(' ')
+                type_name = tmp[0]
                 value = tmp[1]
-                if type_name == '.word':
+
+                if value.startswith('0X'):
+                    value = int(value, 16)
+                elif value.startswith('0B'):
+                    value = int(value, 2)
+                else:
                     value = int(value)
 
-                value_token = Node(Token(type_name, value))
+                tokens.append(Token(TokenType[type_name], value))
+        elif is_type(line):
+            tmp = line.split('.')[1].strip().split(' ')
 
-                label_node.add_child(value_token)
-                data_node.add_child(label_node)
+            type_name = tmp[0]
+            value = tmp[1]
 
-                i += 1
-            state = None
+            if value.startswith('0X'):
+                value = int(value, 16)
+            elif value.startswith('0B'):
+                value = int(value, 2)
+            else:
+                value = int(value)
 
-        elif state == 'text':
-            text_node = None
-            if line.startswith('.text'):
-                text_token = Token('TEXT', line)
-                text_node = Node(text_token)
-                ast.root.add_child(text_node)
-                i += 1
+            tokens.append(Token(TokenType[type_name], value))
 
-            while i < len(lines) and not lines[i].startswith('.data'):
-                line = lines[i]
+        else:
+            tmp = line.split(' ')
+            upcode, operands = tmp[0], tmp[1:]
 
-                if line.isspace() or line in ['\n', '']:  # Skip empty lines.
-                    i += 1
-                    continue
+            upcode_token = Token(TokenType.UPCODE, upcode)
+            tokens.append(upcode_token)
 
-                if line.count(':') == 1:
-                    label_node = Node(Token('LABEL', line.split(':')[0]))
-                    text_node.add_child(label_node)
-                    i += 1
-                    continue
+            for operand in operands:
+                value_token = None
+                if operand.startswith('0X'):
+                    value_token = Token(TokenType.IMEDIATE, int(operand, 16))
+                elif operand.startswith('0B'):
+                    value_token = Token(TokenType.IMEDIATE, int(operand, 2))
+                else:
+                    value_token = Token(TokenType.REFERENCE, operand)
+                tokens.append(value_token)
 
-                tmp = line.split(' ')
-                upcode, operands = tmp[0], tmp[1:]
-
-                upcode_node = Node(Token('UPCODE', upcode))
-
-                for operand in operands:
-                    value_token = None
-                    if operand.startswith('0x'):
-                        value_token = Node(Token('IMEDIATE', int(operand, 16)))
-                    elif operand.startswith('0b'):
-                        value_token = Node(Token('IMEDIATE', int(operand, 2)))
-                    else:
-                        value_token = Node(Token('LABEL', operand))
-                    upcode_node.add_child(value_token)
-
-                text_node.add_child(upcode_node)
-
-                i += 1
-            state = None
-
-    return ast
+    return tokens

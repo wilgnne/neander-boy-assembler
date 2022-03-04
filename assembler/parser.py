@@ -2,25 +2,17 @@
     A parser definition
 '''
 
+from shutil import ExecError
 from assembler.node import Node
-
-def populate_symbol_table(node: Node, simbol_table: dict):
-    '''
-    Populate the symbol table.
-    '''
-    if node.value.type == 'LABEL':
-        simbol_table[node.value.value] = None
-    for child in node.children:
-        populate_symbol_table(child, simbol_table)
-
-    return simbol_table
+from assembler.token import Token, TokenType, DATA_TYPES
+from assembler.ast import Ast
 
 DECODER = {
     'NOP': 0b0000_0000,
     'STA': 0b0000_0001,
     'LDA': 0b0000_0010,
     'ADD': 0b0000_0011,
-    'OR' : 0b0000_0100,
+    'OR': 0b0000_0100,
     'AND': 0b0000_0101,
     'NOT': 0b0000_0110,
     'SUB': 0b0000_0111,
@@ -32,42 +24,71 @@ DECODER = {
     'HLT': 0b0000_1111,
 }
 
-def parser(node: Node, simbol_table: dict = None, mem = None):
+
+def parser(tokens: list[Token]) -> tuple[Ast, dict[str, str]]:
     '''
-    Parser.
+    Parses the tokens and returns the AST.
     '''
-    if simbol_table is None:
-        simbol_table = {}
-        simbol_table = populate_symbol_table(node, simbol_table)
+    ast = Ast()
 
-    if mem is None:
-        mem = []
-        if 'main' in simbol_table.keys():
-            mem.append(DECODER['JMP'])
-            mem.append(None)
+    # Create the root node.
+    root = Node('ROOT')
+    ast.root = root
 
-    if node.value.type == 'DATA':
-        for child in node.children:
-            if child.value.type == 'LABEL':
-                mem.append(child.children[0].value.value)
-                simbol_table[child.value.value] = len(mem) - 1
-    elif node.value.type == 'LABEL':
-        if simbol_table[node.value.value] is None:
-            simbol_table[node.value.value] = len(mem)
-    elif node.value.type == 'UPCODE':
-        upcode = DECODER[node.value.value]
-        mem.append(upcode)
+    # Create the current node.
+    current = root
 
-        for child in node.children:
-            if child.value.type == 'LABEL':
-                mem.append(simbol_table[child.value.value])
-            elif child.value.type == 'IMEDIATE':
-                mem.append(child.value.value)
+    # Create the symbol table.
+    labels = [(token.value, None)
+              for token in tokens if token.type == TokenType.LABEL]
+    simbol_table = dict(labels)
 
-    for child in node.children:
-        parser(child, simbol_table, mem)
+    for token in tokens:
+        if token.type == TokenType.SEGMENT:
+            # Create a new node childred the root node.
+            current = Node(token)
+            root.children.append(current)
+        elif token.type == TokenType.LABEL:
+            if current.value.type != TokenType.SEGMENT:
+                raise ExecError('Labels can only be defined in a segment.')
 
-    if 'main' in simbol_table.keys():
-        mem[1] = simbol_table['main']
+            # Create a new node childred the current node.
+            label_node = Node(token)
+            current.add_child(label_node)
 
-    return simbol_table, mem
+        elif token.type in DATA_TYPES:
+            if current.value.type != TokenType.SEGMENT or current.value.value != 'DATA':
+                raise ExecError(
+                    'Data can only be defined in the DATA segment.')
+            # Create a new node childred the current node.
+            data_node = Node(token)
+            current.add_child(data_node)
+
+        elif token.type == TokenType.UPCODE:
+            if current.value.type != TokenType.SEGMENT or current.value.value != 'TEXT':
+                raise ExecError(
+                    'Instructions can only be defined in the TEXT segment.')
+            # Create a new node childred the current node.
+            instruction_node = Node(token)
+            current.add_child(instruction_node)
+
+            # Decode the instruction.
+            instruction_node.value.value = DECODER[token.value]
+
+        elif token.type == TokenType.IMEDIATE:
+            if current.value.type != TokenType.SEGMENT or current.value.value != 'TEXT':
+                raise ExecError(
+                    'Imediate values can only be defined after an instruction.')
+            # Create a new node childred the current node.
+            data_node = Node(token)
+            current.add_child(data_node)
+
+        elif token.type == TokenType.REFERENCE:
+            if current.value.type != TokenType.SEGMENT or current.value.value != 'TEXT':
+                raise ExecError(
+                    'References can only be defined after an instruction.')
+            # Create a new node childred the current node.
+            data_node = Node(token)
+            current.add_child(data_node)
+
+    return ast, simbol_table
